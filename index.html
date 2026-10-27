@@ -1,1 +1,220 @@
 
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mic Booster 100x</title>
+
+<style>
+  body {
+    font-family: sans-serif;
+    background: #12131a;
+    color: white;
+    text-align: center;
+    padding: 24px 16px;
+  }
+
+  .panel {
+    max-width: 420px;
+    margin: auto;
+    padding: 24px;
+    background: #242634;
+    border-radius: 18px;
+  }
+
+  button {
+    border: none;
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin: 6px;
+    font-size: 16px;
+    font-weight: bold;
+  }
+
+  #start {
+    background: #5865f2;
+    color: white;
+  }
+
+  #stop {
+    background: #e5484d;
+    color: white;
+  }
+
+  input {
+    width: 100%;
+    margin: 18px 0;
+  }
+
+  .gain {
+    font-size: 38px;
+    color: #a5adff;
+    font-weight: bold;
+  }
+
+  #status {
+    color: #b8bdd0;
+  }
+
+  #level {
+    color: #75e6a5;
+  }
+</style>
+</head>
+
+<body>
+<div class="panel">
+  <h2>🎙️ MIC BOOSTER</h2>
+  <p>Microphone Gain Control</p>
+
+  <div class="gain">
+    <span id="gainValue">20</span>x
+  </div>
+
+  <input
+    id="gain"
+    type="range"
+    min="1"
+    max="100"
+    step="1"
+    value="20"
+  >
+
+  <p>GAIN: 1x – 100x</p>
+
+  <button id="start">เปิดไมค์</button>
+  <button id="stop">ปิดไมค์</button>
+
+  <p id="status">สถานะ: ปิดไมค์</p>
+  <p id="level">ระดับสัญญาณ: 0%</p>
+
+  <small>
+    ใช้หูฟังและเริ่มจากระดับเสียงต่ำ
+    อย่าเปิดเสียงดังจนเป็นอันตรายต่อการได้ยิน
+  </small>
+</div>
+
+<script>
+let audioContext = null;
+let stream = null;
+let source = null;
+let gainNode = null;
+let analyser = null;
+let animationId = null;
+
+const gainSlider = document.getElementById("gain");
+const gainValue = document.getElementById("gainValue");
+const statusText = document.getElementById("status");
+const levelText = document.getElementById("level");
+
+gainSlider.addEventListener("input", () => {
+  const value = Number(gainSlider.value);
+  gainValue.textContent = value;
+
+  if (gainNode && audioContext) {
+    gainNode.gain.setTargetAtTime(
+      value,
+      audioContext.currentTime,
+      0.02
+    );
+  }
+});
+
+document.getElementById("start").addEventListener("click", async () => {
+  if (stream) return;
+
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("กรุณาเปิดผ่านเว็บ HTTPS");
+    }
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+
+    audioContext = new AudioContext();
+    await audioContext.resume();
+
+    source = audioContext.createMediaStreamSource(stream);
+    gainNode = audioContext.createGain();
+    analyser = audioContext.createAnalyser();
+
+    analyser.fftSize = 2048;
+    gainNode.gain.value = Number(gainSlider.value);
+
+    source.connect(gainNode);
+    gainNode.connect(analyser);
+
+    // ส่งเสียงที่ขยายแล้วไปยังเอาต์พุตของอุปกรณ์
+    // ใช้หูฟังเพื่อป้องกันเสียงหอน
+    analyser.connect(audioContext.destination);
+
+    statusText.textContent = "สถานะ: กำลังทำงาน";
+    measureLevel();
+
+  } catch (error) {
+    stopMic();
+    statusText.textContent = "เปิดไมค์ไม่สำเร็จ: " + error.message;
+  }
+});
+
+function measureLevel() {
+  if (!analyser) return;
+
+  const data = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(data);
+
+  let sum = 0;
+  let peak = 0;
+
+  for (const sample of data) {
+    sum += sample * sample;
+    peak = Math.max(peak, Math.abs(sample));
+  }
+
+  const rms = Math.sqrt(sum / data.length);
+  const rmsPercent = Math.min(100, Math.round(rms * 100));
+  const peakPercent = Math.min(100, Math.round(peak * 100));
+
+  levelText.textContent =
+    "RMS: " + rmsPercent + "% | Peak: " + peakPercent + "%";
+
+  animationId = requestAnimationFrame(measureLevel);
+}
+
+document.getElementById("stop").addEventListener("click", stopMic);
+
+function stopMic() {
+  if (animationId !== null) {
+    cancelAnimationFrame(animationId);
+    animationId = null;
+  }
+
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+
+  if (audioContext) {
+    audioContext.close().catch(() => {});
+  }
+
+  stream = null;
+  audioContext = null;
+  source = null;
+  gainNode = null;
+  analyser = null;
+
+  statusText.textContent = "สถานะ: ปิดไมค์";
+  levelText.textContent = "ระดับสัญญาณ: 0%";
+}
+
+window.addEventListener("pagehide", stopMic);
+</script>
+</body>
+  </html>
+  
